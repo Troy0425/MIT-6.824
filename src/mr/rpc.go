@@ -21,12 +21,12 @@ type Args struct {
 }
 
 type Reply struct {
-	filename  string
-	taskType  string
-	taskIndex int
-	nMap      int
-	nReduce   int
-	done      bool
+	Filename  string
+	TaskType  string
+	TaskIndex int
+	NMap      int
+	NReduce   int
+	Done      bool
 }
 
 // Add your RPC definitions here.

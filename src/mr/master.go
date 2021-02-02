@@ -27,15 +27,19 @@ type Master struct {
 // the RPC argument and reply types are defined in rpc.go.
 //
 func (m *Master) TaskAllocate(args *Args, reply *Reply) error {
+	fmt.Println("Got worker call", *args)
 	if !m.mapDone {
 		// allocate map to workers
 		for i := 0; i < m.nMap; i++ {
 			if m.eachMapDone[i] == false {
 				fmt.Println("allocate map task", i)
-				reply.filename = m.files[i]
-				reply.taskType = "map"
-				reply.nReduce = m.nReduce
-				reply.done = false
+				reply.Filename = m.files[i]
+				reply.TaskType = "map"
+				reply.TaskIndex = i
+				reply.NMap = m.nMap
+				reply.NReduce = m.nReduce
+				reply.Done = false
+				break
 			}
 		}
 	} else {
@@ -44,15 +48,16 @@ func (m *Master) TaskAllocate(args *Args, reply *Reply) error {
 			for i := 0; i < m.nReduce; i++ {
 				if m.eachReduceDone[i] == false {
 					fmt.Println("allocate reduce task", i)
-					reply.taskType = "reduce"
-					reply.taskIndex = i
-					reply.nMap = m.nMap
-					reply.done = false
+					reply.TaskType = "reduce"
+					reply.TaskIndex = i
+					reply.NMap = m.nMap
+					reply.Done = false
+					break
 				}
 			}
 		} else {
 			// all done
-			reply.done = true
+			reply.Done = true
 		}
 	}
 	return nil
