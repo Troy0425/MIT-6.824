@@ -1,15 +1,22 @@
 package mr
 
-import "log"
-import "net"
-import "os"
-import "net/rpc"
-import "net/http"
-
+import (
+	"fmt"
+	"log"
+	"net"
+	"net/http"
+	"net/rpc"
+	"os"
+)
 
 type Master struct {
-	// Your definitions here.
-
+	nReduce        int
+	nMap           int
+	files          []string
+	eachMapDone    []bool
+	mapDone        bool
+	eachReduceDone []bool
+	reduceDone     bool
 }
 
 // Your code here -- RPC handlers for the worker to call.
@@ -19,11 +26,37 @@ type Master struct {
 //
 // the RPC argument and reply types are defined in rpc.go.
 //
-func (m *Master) Example(args *ExampleArgs, reply *ExampleReply) error {
-	reply.Y = args.X + 1
+func (m *Master) TaskAllocate(args *Args, reply *Reply) error {
+	if !m.mapDone {
+		// allocate map to workers
+		for i := 0; i < m.nMap; i++ {
+			if m.eachMapDone[i] == false {
+				fmt.Println("allocate map task", i)
+				reply.filename = m.files[i]
+				reply.taskType = "map"
+				reply.nReduce = m.nReduce
+				reply.done = false
+			}
+		}
+	} else {
+		if !m.reduceDone {
+			// allocate reduce to workers
+			for i := 0; i < m.nReduce; i++ {
+				if m.eachReduceDone[i] == false {
+					fmt.Println("allocate reduce task", i)
+					reply.taskType = "reduce"
+					reply.taskIndex = i
+					reply.nMap = m.nMap
+					reply.done = false
+				}
+			}
+		} else {
+			// all done
+			reply.done = true
+		}
+	}
 	return nil
 }
-
 
 //
 // start a thread that listens for RPCs from worker.go
@@ -46,11 +79,7 @@ func (m *Master) server() {
 // if the entire job has finished.
 //
 func (m *Master) Done() bool {
-	ret := false
-
-	// Your code here.
-
-
+	ret := m.mapDone && m.reduceDone
 	return ret
 }
 
@@ -60,11 +89,15 @@ func (m *Master) Done() bool {
 // nReduce is the number of reduce tasks to use.
 //
 func MakeMaster(files []string, nReduce int) *Master {
-	m := Master{}
-
-	// Your code here.
-
-
+	m := Master{
+		nReduce:        nReduce,
+		nMap:           len(files),
+		files:          files,
+		eachMapDone:    make([]bool, len(files)),
+		mapDone:        false,
+		eachReduceDone: make([]bool, nReduce),
+		reduceDone:     false,
+	}
 	m.server()
 	return &m
 }

@@ -1,18 +1,29 @@
 package mr
 
-import "fmt"
-import "log"
-import "net/rpc"
-import "hash/fnv"
-
+import (
+	"encoding/json"
+	"fmt"
+	"hash/fnv"
+	"io/ioutil"
+	"log"
+	"net/rpc"
+	"os"
+	"sort"
+)
 
 //
 // Map functions return a slice of KeyValue.
 //
+
 type KeyValue struct {
 	Key   string
 	Value string
 }
+type ByKey []KeyValue
+
+func (a ByKey) Len() int           { return len(a) }
+func (a ByKey) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a ByKey) Less(i, j int) bool { return a[i].Key < a[j].Key }
 
 //
 // use ihash(key) % NReduce to choose the reduce
@@ -24,17 +35,108 @@ func ihash(key string) int {
 	return int(h.Sum32() & 0x7fffffff)
 }
 
-
 //
 // main/mrworker.go calls this function.
 //
-func Worker(mapf func(string, string) []KeyValue,
-	reducef func(string, []string) string) {
+func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string) string) {
+	for {
+		reply, succeed := CallMaster()
+		if reply.done == true {
+			os.Exit(0)
+		}
+		if succeed {
+			switch reply.taskType {
+			case "map":
+				fmt.Println("Got map task", reply.filename)
+				filename := reply.filename
+				file, err := os.Open(filename)
+				if err != nil {
+					log.Fatalf("cannot open %v", filename)
+				}
+				content, err := ioutil.ReadAll(file)
+				if err != nil {
+					log.Fatalf("cannot read %v", filename)
+				}
+				file.Close()
+				kva := mapf(filename, string(content))
 
-	// Your worker implementation here.
+				ofiles := make([]*os.File, reply.nReduce)
+				encs := make([]*json.Encoder, reply.nReduce)
+				for i := 0; i < reply.nReduce; i++ {
+					ofiles[i], err = ioutil.TempFile("", "")
+					if err != nil {
+						log.Fatal(err)
+					}
+					encs[i] = json.NewEncoder(ofiles[i])
+				}
+				for _, kv := range kva {
+					fileIndex := ihash(kv.Key) % reply.nReduce
+					err := encs[fileIndex].Encode(&kv)
+					if err != nil {
+						log.Fatal(err)
+					}
+				}
+				for i := 0; i < reply.nReduce; i++ {
+					oname := "mr-" + string(reply.taskIndex) + "-" + string(i)
+					err := os.Rename(ofiles[i].Name(), oname)
+					if err != nil {
+						log.Fatal(err)
+					}
+				}
+			case "reduce":
+				fmt.Println("Got reduce task", reply.taskIndex)
+				kva := []KeyValue{}
+				for i := 0; i < reply.nMap; i++ {
+					filename := "mr-" + string(i) + "-" + string(reply.taskIndex)
+					file, err := os.Open(filename)
+					if err != nil {
+						log.Fatal(err)
+					}
+					dec := json.NewDecoder(file)
+					for {
+						var kv KeyValue
+						if err := dec.Decode(&kv); err != nil {
+							break
+						}
+						kva = append(kva, kv)
+					}
+				}
 
-	// uncomment to send the Example RPC to the master.
-	// CallExample()
+				sort.Sort(ByKey(kva))
+				tmpfile, err := ioutil.TempFile("", "")
+				if err != nil {
+					log.Fatal(err)
+				}
+				intermediate := kva
+				i := 0
+				for i < len(intermediate) {
+					j := i + 1
+					for j < len(intermediate) && intermediate[j].Key == intermediate[i].Key {
+						j++
+					}
+					values := []string{}
+					for k := i; k < j; k++ {
+						values = append(values, intermediate[k].Value)
+					}
+					output := reducef(intermediate[i].Key, values)
+
+					// this is the correct format for each line of Reduce output.
+					fmt.Fprintf(tmpfile, "%v %v\n", intermediate[i].Key, output)
+
+					i = j
+				}
+				oname := "mr-out-" + string(reply.taskIndex)
+				err = os.Rename(tmpfile.Name(), oname)
+				if err != nil {
+					log.Fatal(err)
+				}
+				tmpfile.Close()
+			}
+		} else {
+			fmt.Println("worker call master failed")
+			return
+		}
+	}
 
 }
 
@@ -43,22 +145,18 @@ func Worker(mapf func(string, string) []KeyValue,
 //
 // the RPC argument and reply types are defined in rpc.go.
 //
-func CallExample() {
+func CallMaster() (Reply, bool) {
 
 	// declare an argument structure.
-	args := ExampleArgs{}
-
-	// fill in the argument(s).
-	args.X = 99
+	args := Args{}
 
 	// declare a reply structure.
-	reply := ExampleReply{}
+	reply := Reply{}
 
 	// send the RPC request, wait for the reply.
-	call("Master.Example", &args, &reply)
+	succeed := call("Master.TaskAllocate", &args, &reply)
 
-	// reply.Y should be 100.
-	fmt.Printf("reply.Y %v\n", reply.Y)
+	return reply, succeed
 }
 
 //
@@ -74,7 +172,6 @@ func call(rpcname string, args interface{}, reply interface{}) bool {
 		log.Fatal("dialing:", err)
 	}
 	defer c.Close()
-
 	err = c.Call(rpcname, args, reply)
 	if err == nil {
 		return true
