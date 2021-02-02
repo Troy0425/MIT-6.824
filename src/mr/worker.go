@@ -9,6 +9,7 @@ import (
 	"net/rpc"
 	"os"
 	"sort"
+	"strconv"
 )
 
 //
@@ -41,14 +42,14 @@ func ihash(key string) int {
 func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string) string) {
 	for {
 		reply, succeed := CallMaster()
-		if reply.done == true {
+		if reply.Done == true {
 			os.Exit(0)
 		}
 		if succeed {
-			switch reply.taskType {
+			switch reply.TaskType {
 			case "map":
-				fmt.Println("Got map task", reply.filename)
-				filename := reply.filename
+				fmt.Println("Got map task", reply.Filename)
+				filename := reply.Filename
 				file, err := os.Open(filename)
 				if err != nil {
 					log.Fatalf("cannot open %v", filename)
@@ -60,9 +61,9 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 				file.Close()
 				kva := mapf(filename, string(content))
 
-				ofiles := make([]*os.File, reply.nReduce)
-				encs := make([]*json.Encoder, reply.nReduce)
-				for i := 0; i < reply.nReduce; i++ {
+				ofiles := make([]*os.File, reply.NReduce)
+				encs := make([]*json.Encoder, reply.NReduce)
+				for i := 0; i < reply.NReduce; i++ {
 					ofiles[i], err = ioutil.TempFile("", "")
 					if err != nil {
 						log.Fatal(err)
@@ -70,24 +71,25 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 					encs[i] = json.NewEncoder(ofiles[i])
 				}
 				for _, kv := range kva {
-					fileIndex := ihash(kv.Key) % reply.nReduce
+					fileIndex := ihash(kv.Key) % reply.NReduce
 					err := encs[fileIndex].Encode(&kv)
 					if err != nil {
 						log.Fatal(err)
 					}
 				}
-				for i := 0; i < reply.nReduce; i++ {
-					oname := "mr-" + string(reply.taskIndex) + "-" + string(i)
+				for i := 0; i < reply.NReduce; i++ {
+					oname := "mr-" + strconv.Itoa(reply.TaskIndex) + "-" + strconv.Itoa(i)
+					fmt.Println("Map", ofiles[i].Name(), oname)
 					err := os.Rename(ofiles[i].Name(), oname)
 					if err != nil {
 						log.Fatal(err)
 					}
 				}
 			case "reduce":
-				fmt.Println("Got reduce task", reply.taskIndex)
+				fmt.Println("Got reduce task", reply.TaskIndex)
 				kva := []KeyValue{}
-				for i := 0; i < reply.nMap; i++ {
-					filename := "mr-" + string(i) + "-" + string(reply.taskIndex)
+				for i := 0; i < reply.NMap; i++ {
+					filename := "mr-" + string(i) + "-" + string(reply.TaskIndex)
 					file, err := os.Open(filename)
 					if err != nil {
 						log.Fatal(err)
@@ -125,7 +127,8 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 
 					i = j
 				}
-				oname := "mr-out-" + string(reply.taskIndex)
+				oname := "mr-out-" + string(reply.TaskIndex)
+				fmt.Println("Reduce", tmpfile.Name(), oname)
 				err = os.Rename(tmpfile.Name(), oname)
 				if err != nil {
 					log.Fatal(err)
@@ -172,6 +175,7 @@ func call(rpcname string, args interface{}, reply interface{}) bool {
 		log.Fatal("dialing:", err)
 	}
 	defer c.Close()
+	fmt.Println(rpcname)
 	err = c.Call(rpcname, args, reply)
 	if err == nil {
 		return true
