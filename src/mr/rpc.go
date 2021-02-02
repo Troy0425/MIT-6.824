@@ -17,7 +17,8 @@ import (
 //
 
 type Args struct {
-	X int
+	TaskType string
+	TaskIndex int
 }
 
 type Reply struct {

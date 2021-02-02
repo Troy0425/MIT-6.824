@@ -41,8 +41,10 @@ func ihash(key string) int {
 //
 func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string) string) {
 	for {
-		reply, succeed := CallMaster()
+		args := Args{}
+		reply, succeed := CallMaster(args, "Master.TaskAllocate")
 		if reply.Done == true {
+			fmt.Println("All done -> exit")
 			os.Exit(0)
 		}
 		if succeed {
@@ -85,11 +87,19 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 						log.Fatal(err)
 					}
 				}
+				args := Args{
+					TaskType: "map",
+					TaskIndex: reply.TaskIndex,
+				}
+				_, succeed := CallMaster(args, "Master.TaskDone")
+				if succeed != true {
+					fmt.Println("Map task done failed")
+				}
 			case "reduce":
 				fmt.Println("Got reduce task", reply.TaskIndex)
 				kva := []KeyValue{}
 				for i := 0; i < reply.NMap; i++ {
-					filename := "mr-" + string(i) + "-" + string(reply.TaskIndex)
+					filename := "mr-" + strconv.Itoa(i) + "-" + strconv.Itoa(reply.TaskIndex)
 					file, err := os.Open(filename)
 					if err != nil {
 						log.Fatal(err)
@@ -127,13 +137,21 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 
 					i = j
 				}
-				oname := "mr-out-" + string(reply.TaskIndex)
+				oname := "mr-out-" + strconv.Itoa(reply.TaskIndex)
 				fmt.Println("Reduce", tmpfile.Name(), oname)
 				err = os.Rename(tmpfile.Name(), oname)
 				if err != nil {
 					log.Fatal(err)
 				}
 				tmpfile.Close()
+				args := Args{
+					TaskType: "reduce",
+					TaskIndex: reply.TaskIndex,
+				}
+				_, succeed := CallMaster(args, "Master.TaskDone")
+				if succeed != true {
+					fmt.Println("reduce task done failed")
+				}
 			}
 		} else {
 			fmt.Println("worker call master failed")
@@ -148,16 +166,13 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 //
 // the RPC argument and reply types are defined in rpc.go.
 //
-func CallMaster() (Reply, bool) {
-
-	// declare an argument structure.
-	args := Args{}
+func CallMaster(args Args, rpcname string) (Reply, bool) {
 
 	// declare a reply structure.
 	reply := Reply{}
 
 	// send the RPC request, wait for the reply.
-	succeed := call("Master.TaskAllocate", &args, &reply)
+	succeed := call(rpcname, &args, &reply)
 
 	return reply, succeed
 }
@@ -175,7 +190,7 @@ func call(rpcname string, args interface{}, reply interface{}) bool {
 		log.Fatal("dialing:", err)
 	}
 	defer c.Close()
-	fmt.Println(rpcname)
+
 	err = c.Call(rpcname, args, reply)
 	if err == nil {
 		return true

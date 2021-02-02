@@ -26,6 +26,26 @@ type Master struct {
 //
 // the RPC argument and reply types are defined in rpc.go.
 //
+func checkAllTrue(boolSlice []bool) bool {
+	for _, each := range boolSlice {
+		if each == false {
+			return false
+		}
+	}
+	return true
+}
+func (m *Master) TaskDone(args *Args, reply *Reply) error {
+	switch args.TaskType {
+	case "map":
+		m.eachMapDone[args.TaskIndex] = true
+		m.mapDone = checkAllTrue(m.eachMapDone) 
+		
+	case "reduce":
+		m.eachReduceDone[args.TaskIndex] = true
+		m.reduceDone = checkAllTrue(m.eachReduceDone) 
+	}
+	return nil
+}
 func (m *Master) TaskAllocate(args *Args, reply *Reply) error {
 	fmt.Println("Got worker call", *args)
 	if !m.mapDone {
@@ -84,6 +104,7 @@ func (m *Master) server() {
 // if the entire job has finished.
 //
 func (m *Master) Done() bool {
+	fmt.Println("map done?", m.mapDone, "reduce done?", m.reduceDone)
 	ret := m.mapDone && m.reduceDone
 	return ret
 }
