@@ -44,13 +44,13 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 		args := Args{}
 		reply, succeed := CallMaster(args, "Master.TaskAllocate")
 		if reply.Done == true {
-			fmt.Println("All done -> exit")
+			// fmt.Println("All done -> exit")
 			os.Exit(0)
 		}
 		if succeed {
 			switch reply.TaskType {
 			case "map":
-				fmt.Println("Got map task", reply.Filename)
+				// fmt.Println("Got map task", reply.Filename)
 				filename := reply.Filename
 				file, err := os.Open(filename)
 				if err != nil {
@@ -81,7 +81,7 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 				}
 				for i := 0; i < reply.NReduce; i++ {
 					oname := "mr-" + strconv.Itoa(reply.TaskIndex) + "-" + strconv.Itoa(i)
-					fmt.Println("Map", ofiles[i].Name(), oname)
+					// fmt.Println("Map", ofiles[i].Name(), oname)
 					err := os.Rename(ofiles[i].Name(), oname)
 					if err != nil {
 						log.Fatal(err)
@@ -96,7 +96,7 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 					fmt.Println("Map task done failed")
 				}
 			case "reduce":
-				fmt.Println("Got reduce task", reply.TaskIndex)
+				// fmt.Println("Got reduce task", reply.TaskIndex)
 				kva := []KeyValue{}
 				for i := 0; i < reply.NMap; i++ {
 					filename := "mr-" + strconv.Itoa(i) + "-" + strconv.Itoa(reply.TaskIndex)
@@ -138,7 +138,7 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 					i = j
 				}
 				oname := "mr-out-" + strconv.Itoa(reply.TaskIndex)
-				fmt.Println("Reduce", tmpfile.Name(), oname)
+				// fmt.Println("Reduce", tmpfile.Name(), oname)
 				err = os.Rename(tmpfile.Name(), oname)
 				if err != nil {
 					log.Fatal(err)

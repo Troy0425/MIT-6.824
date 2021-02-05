@@ -1,22 +1,25 @@
 package mr
 
 import (
-	"fmt"
+	// "fmt"
 	"log"
 	"net"
 	"net/http"
 	"net/rpc"
 	"os"
+	"time"
 )
 
 type Master struct {
 	nReduce        int
 	nMap           int
 	files          []string
-	eachMapDone    []bool
+	eachMapDone    []int // 0: not done 1: doing 2: done
 	mapDone        bool
-	eachReduceDone []bool
+	mapAllocateTime []time.Time
+	eachReduceDone []int // 0: not done 1: doing 2: done
 	reduceDone     bool
+	reduceAllocateTime []time.Time
 }
 
 // Your code here -- RPC handlers for the worker to call.
@@ -26,9 +29,9 @@ type Master struct {
 //
 // the RPC argument and reply types are defined in rpc.go.
 //
-func checkAllTrue(boolSlice []bool) bool {
-	for _, each := range boolSlice {
-		if each == false {
+func checkAllTrue(statusSlice []int) bool {
+	for _, each := range statusSlice {
+		if each != 2 {
 			return false
 		}
 	}
@@ -37,22 +40,26 @@ func checkAllTrue(boolSlice []bool) bool {
 func (m *Master) TaskDone(args *Args, reply *Reply) error {
 	switch args.TaskType {
 	case "map":
-		m.eachMapDone[args.TaskIndex] = true
+		// fmt.Println("map done", args.TaskIndex)
+		m.eachMapDone[args.TaskIndex] = 2
 		m.mapDone = checkAllTrue(m.eachMapDone) 
 		
 	case "reduce":
-		m.eachReduceDone[args.TaskIndex] = true
-		m.reduceDone = checkAllTrue(m.eachReduceDone) 
+		m.eachReduceDone[args.TaskIndex] = 2
+		// fmt.Println("reduce done", args.TaskIndex)
+		m.reduceDone = checkAllTrue(m.eachReduceDone)
 	}
 	return nil
 }
 func (m *Master) TaskAllocate(args *Args, reply *Reply) error {
-	fmt.Println("Got worker call", *args)
+	// fmt.Println("Got worker call", *args)
 	if !m.mapDone {
 		// allocate map to workers
 		for i := 0; i < m.nMap; i++ {
-			if m.eachMapDone[i] == false {
-				fmt.Println("allocate map task", i)
+			if m.eachMapDone[i] == 0 {
+				// fmt.Println("allocate map task", i)
+				m.eachMapDone[i] = 1
+				m.mapAllocateTime[i] = time.Now()
 				reply.Filename = m.files[i]
 				reply.TaskType = "map"
 				reply.TaskIndex = i
@@ -60,19 +67,29 @@ func (m *Master) TaskAllocate(args *Args, reply *Reply) error {
 				reply.NReduce = m.nReduce
 				reply.Done = false
 				break
+			} else if m.eachMapDone[i] == 1{
+				if time.Now().Sub(m.mapAllocateTime[i]).Seconds() >= 10.0 {
+					m.eachMapDone[i] = 0
+				}
 			}
 		}
 	} else {
 		if !m.reduceDone {
 			// allocate reduce to workers
 			for i := 0; i < m.nReduce; i++ {
-				if m.eachReduceDone[i] == false {
-					fmt.Println("allocate reduce task", i)
+				if m.eachReduceDone[i] == 0 {
+					// fmt.Println("allocate reduce task", i)
+					m.eachReduceDone[i] = 1
+					m.reduceAllocateTime[i] = time.Now()
 					reply.TaskType = "reduce"
 					reply.TaskIndex = i
 					reply.NMap = m.nMap
 					reply.Done = false
 					break
+				} else if m.eachReduceDone[i] == 1{
+					if time.Now().Sub(m.reduceAllocateTime[i]).Seconds() >= 10.0 {
+						m.eachReduceDone[i] = 0
+					}
 				}
 			}
 		} else {
@@ -104,7 +121,7 @@ func (m *Master) server() {
 // if the entire job has finished.
 //
 func (m *Master) Done() bool {
-	fmt.Println("map done?", m.mapDone, "reduce done?", m.reduceDone)
+	// fmt.Println("map done?", m.mapDone, "reduce done?", m.reduceDone)
 	ret := m.mapDone && m.reduceDone
 	return ret
 }
@@ -119,10 +136,12 @@ func MakeMaster(files []string, nReduce int) *Master {
 		nReduce:        nReduce,
 		nMap:           len(files),
 		files:          files,
-		eachMapDone:    make([]bool, len(files)),
+		eachMapDone:    make([]int, len(files)),
 		mapDone:        false,
-		eachReduceDone: make([]bool, nReduce),
+		mapAllocateTime: make([]time.Time, len(files)),
+		eachReduceDone: make([]int, nReduce),
 		reduceDone:     false,
+		reduceAllocateTime: make([]time.Time, nReduce),
 	}
 	m.server()
 	return &m
