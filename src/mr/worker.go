@@ -86,6 +86,7 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 					if err != nil {
 						log.Fatal(err)
 					}
+					ofiles[i].Close()
 				}
 				args := Args{
 					TaskType: "map",
@@ -101,6 +102,7 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 				for i := 0; i < reply.NMap; i++ {
 					filename := "mr-" + strconv.Itoa(i) + "-" + strconv.Itoa(reply.TaskIndex)
 					file, err := os.Open(filename)
+					defer file.Close()
 					if err != nil {
 						log.Fatal(err)
 					}

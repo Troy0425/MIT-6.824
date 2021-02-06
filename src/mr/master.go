@@ -8,6 +8,7 @@ import (
 	"net/rpc"
 	"os"
 	"time"
+	"sync"
 )
 
 type Master struct {
@@ -20,6 +21,7 @@ type Master struct {
 	eachReduceDone []int // 0: not done 1: doing 2: done
 	reduceDone     bool
 	reduceAllocateTime []time.Time
+	mu sync.Mutex
 }
 
 // Your code here -- RPC handlers for the worker to call.
@@ -38,6 +40,8 @@ func checkAllTrue(statusSlice []int) bool {
 	return true
 }
 func (m *Master) TaskDone(args *Args, reply *Reply) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	switch args.TaskType {
 	case "map":
 		// fmt.Println("map done", args.TaskIndex)
@@ -53,10 +57,13 @@ func (m *Master) TaskDone(args *Args, reply *Reply) error {
 }
 func (m *Master) TaskAllocate(args *Args, reply *Reply) error {
 	// fmt.Println("Got worker call", *args)
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if !m.mapDone {
 		// allocate map to workers
 		for i := 0; i < m.nMap; i++ {
-			if m.eachMapDone[i] == 0 {
+			if m.eachMapDone[i] == 0 || 
+				(m.eachMapDone[i] == 1 && time.Now().Sub(m.mapAllocateTime[i]).Seconds() >= 10.0) {
 				// fmt.Println("allocate map task", i)
 				m.eachMapDone[i] = 1
 				m.mapAllocateTime[i] = time.Now()
@@ -67,17 +74,14 @@ func (m *Master) TaskAllocate(args *Args, reply *Reply) error {
 				reply.NReduce = m.nReduce
 				reply.Done = false
 				break
-			} else if m.eachMapDone[i] == 1{
-				if time.Now().Sub(m.mapAllocateTime[i]).Seconds() >= 10.0 {
-					m.eachMapDone[i] = 0
-				}
 			}
 		}
 	} else {
 		if !m.reduceDone {
 			// allocate reduce to workers
 			for i := 0; i < m.nReduce; i++ {
-				if m.eachReduceDone[i] == 0 {
+				if m.eachReduceDone[i] == 0 ||
+					(m.eachReduceDone[i] == 1 && time.Now().Sub(m.reduceAllocateTime[i]).Seconds() >= 10.0) {
 					// fmt.Println("allocate reduce task", i)
 					m.eachReduceDone[i] = 1
 					m.reduceAllocateTime[i] = time.Now()
@@ -86,10 +90,6 @@ func (m *Master) TaskAllocate(args *Args, reply *Reply) error {
 					reply.NMap = m.nMap
 					reply.Done = false
 					break
-				} else if m.eachReduceDone[i] == 1{
-					if time.Now().Sub(m.reduceAllocateTime[i]).Seconds() >= 10.0 {
-						m.eachReduceDone[i] = 0
-					}
 				}
 			}
 		} else {
@@ -122,6 +122,8 @@ func (m *Master) server() {
 //
 func (m *Master) Done() bool {
 	// fmt.Println("map done?", m.mapDone, "reduce done?", m.reduceDone)
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	ret := m.mapDone && m.reduceDone
 	return ret
 }
