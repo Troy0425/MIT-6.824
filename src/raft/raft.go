@@ -43,6 +43,18 @@ type ApplyMsg struct {
 	CommandIndex int
 }
 
+type logInfo struct{
+
+	Log interface{}
+	Term int
+
+}
+
+const (
+	leader = 1
+	candidate = 2
+	follwer = 3
+}
 //
 // A Go object implementing a single Raft peer.
 //
@@ -56,7 +68,17 @@ type Raft struct {
 	// Your data here (2A, 2B, 2C).
 	// Look at the paper's Figure 2 for a description of what
 	// state a Raft server must maintain.
+	state int
+	log []logInfo
+	votedFor int
+	curretnTerm int
 
+
+	commitIndex int
+	lastApplied int
+
+	nextIndex []int
+	matchIndex []int
 }
 
 // return currentTerm and whether this server
@@ -66,6 +88,12 @@ func (rf *Raft) GetState() (int, bool) {
 	var term int
 	var isleader bool
 	// Your code here (2A).
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	term = rf.currentTerm
+	if rf.state==leader{
+		isLeader=true
+	}
 	return term, isleader
 }
 
@@ -117,6 +145,11 @@ func (rf *Raft) readPersist(data []byte) {
 //
 type RequestVoteArgs struct {
 	// Your data here (2A, 2B).
+	Term int
+	CandidateId int
+	LastLogIndex int
+	LastLogTerm int
+
 }
 
 //
@@ -125,6 +158,9 @@ type RequestVoteArgs struct {
 //
 type RequestVoteReply struct {
 	// Your data here (2A).
+
+	Term int
+	VoteGranted bool
 }
 
 //
@@ -132,6 +168,30 @@ type RequestVoteReply struct {
 //
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (2A, 2B).
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	//Receiver view:
+	currentTerm:= rf.currentTerm
+	senderTerm:=args.Term
+	candidateId := args.CandidateId
+	if senderTerm<currentTerm{
+		reply.VoteGranted = false
+		return
+
+	if senderTerm > currentTerm{
+		rf.curretnTerm = senderTerm
+		//change State?
+	}
+	// grant vote situation
+	if rf.votedFor==nil || rf.votedFor==candidateId{
+		if rf.lastApplied==args.LastLogTerm && rf.log[rf.lastApplied]==args.LastLogTerm{
+
+			rf.curretnTerm = senderTerm
+			return
+		}
+
+
+	return false
 }
 
 //
