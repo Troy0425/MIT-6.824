@@ -54,6 +54,7 @@ const (
 	leader = 1
 	candidate = 2
 	follwer = 3
+	heartBeatDuration = 100
 }
 //
 // A Go object implementing a single Raft peer.
@@ -71,9 +72,11 @@ type Raft struct {
 	state int
 	log []logInfo
 	votedFor int
-	curretnTerm int
-
-
+	currentTerm int
+	totalGrant int
+	reqChan chan int
+	leaderChan chan bool
+	n int
 	commitIndex int
 	lastApplied int
 
@@ -174,19 +177,24 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	currentTerm:= rf.currentTerm
 	senderTerm:=args.Term
 	candidateId := args.CandidateId
+
 	if senderTerm<currentTerm{
 		reply.VoteGranted = false
+		reply.Term = currentTerm
 		return
 
 	if senderTerm > currentTerm{
-		rf.curretnTerm = senderTerm
+		rf.currentTerm = senderTerm
+		reply.VoteGranted = true
+		rf.state = follwer
+		return
 		//change State?
 	}
 	// grant vote situation
 	if rf.votedFor==nil || rf.votedFor==candidateId{
 		if rf.lastApplied==args.LastLogTerm && rf.log[rf.lastApplied]==args.LastLogTerm{
 
-			rf.curretnTerm = senderTerm
+			rf.currentTerm = senderTerm
 			return
 		}
 
@@ -225,6 +233,17 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 //
 func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *RequestVoteReply) bool {
 	ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
+	if ok{
+
+		if reply.VoteGranted{
+			rf.totalGrant++
+		}
+		if rf.totalGrant> rf.n/2{
+			leaderChan<- true
+		}
+
+	}
+
 	return ok
 }
 
@@ -292,12 +311,67 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.peers = peers
 	rf.persister = persister
 	rf.me = me
-
+	rf.n = len(peers)
 	// Your initialization code here (2A, 2B, 2C).
 
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
 
+	go rf.Running()
 
 	return rf
+}
+//sendRequestVote(server int, args *RequestVoteArgs, reply *RequestVoteReply)
+func (rf* Raft) becomeCandidate(){
+	rf.state = candidate
+	rf.currentTerm++
+	args := &RequestVoteArgs{
+		rf.currentTerm
+		rf.me
+		rf.lastApplied
+		rf.commitIndex
+	}
+	reply := &RequestVoteReply{}
+	rf.votedFor = me
+	rf.totalGrant++
+	for i:=0;i<rf.n;i++{
+		go sendRequestVote(i,args,reply)
+	}
+	
+}
+
+func (rf*Raft) sendAllHeartBeat()
+{
+
+	for  i:= 0;i<rf.n;i++{
+
+		go sendHeartBeat(i)
+	}
+}
+
+func (rf *Raft) Running(){
+	for{
+
+	switch rf.state {
+	case learder:
+			sendAllHeartBeat()
+			time.Sleep(time.Millisecond*heartBeatDuration)
+			// send heartBeat
+	case candidate:
+		select {
+		case <-leaderChan:// chan
+			becomeLeader()
+		case <-heartBeatChan:
+			becomeFollower()
+		case <-time.After(time.Millisecond*(rand.Intn(150)+200)):
+			rf.totalGrant = 0
+			becomeCandidate()
+		}
+	case follower:
+			select {
+			case <-reqChan:
+			case <-time.After(time.Millisecond*(rand.Intn(150)+200)):
+				 becomeCandidate()
+			}
+	}
 }
